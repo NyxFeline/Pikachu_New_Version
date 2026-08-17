@@ -9,7 +9,6 @@ import android.widget.ProgressBar;
 
 public class VerticalProgressBar extends ProgressBar {
 
-    // --- Các hàm khởi tạo (không đổi) ---
     public VerticalProgressBar(Context context) {
         super(context);
         init();
@@ -34,16 +33,9 @@ public class VerticalProgressBar extends ProgressBar {
         super.onSizeChanged(h, w, oldh, oldw);
     }
 
-    /**
-     * Dòng @SuppressLint này sẽ TẮT CẢNH BÁO MÀU VÀNG bạn thấy ở dòng 48.
-     * Nó báo cho Android Studio biết rằng việc tráo đổi tham số bên dưới
-     * là hành động có chủ đích.
-     */
     @SuppressLint("SuspiciousNameCombination")
     @Override
     protected synchronized void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        // Dòng 48 bạn hỏi đây. Nó đang làm đúng nhiệm vụ là tráo đổi
-        // height và width để ProgressBar có thể hiển thị dọc.
         super.onMeasure(heightMeasureSpec, widthMeasureSpec);
 
         setMeasuredDimension(getMeasuredHeight(), getMeasuredWidth());

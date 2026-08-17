@@ -13,17 +13,24 @@
         android:theme="@style/Theme.App1.NoActionBar">
 
         <activity
-            android:name=".GameActivity"
+            android:name="com.example.app1.MainActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            tools:ignore="LockedOrientationActivity">
-
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.example.app1.GameActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
     </application>
 
 </manifest>

@@ -30,24 +30,20 @@ import java.util.List;
 
 public class GameActivity extends AppCompatActivity {
 
-    // Chế độ Debug: Thay đổi số này để nhảy đến màn muốn test
     private static final int DEBUG_START_LEVEL = 1;
 
-    // --- Cấu hình Game ---
     private static final int TOTAL_ROWS = 9;
     private static final int TOTAL_COLS = 16;
     private static final int TOTAL_POKEMON_TYPES = 18;
     private static final int GAME_TIME_IN_SECONDS = 260;
     private static final int INITIAL_SHUFFLES = 10;
 
-    // --- Các thành phần UI và Trạng thái Game (giữ nguyên) ---
     private TextView tvLevel, tvShuffleCount, tvScore;
-    private ImageButton btnMute, btnShuffle, btnReplay;
+    private ImageButton btnPause, btnShuffle, btnSetting;
     private ProgressBar timeProgressBar;
     private GameBoardView gameBoardView;
 
     private int[][] board;
-    private Bitmap[] pokemonImages;
     private int currentLevel = DEBUG_START_LEVEL;
     private int currentScore = 0;
     private int shufflesLeft = INITIAL_SHUFFLES;
@@ -55,12 +51,12 @@ public class GameActivity extends AppCompatActivity {
     private int remainingPairs;
 
     private boolean isMuted = false;
+    private long timeRemainingMillis = GAME_TIME_IN_SECONDS * 1000L;
     private MediaPlayer backgroundMusicPlayer;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private CountDownTimer gameTimer;
 
 
-    // ... (Toàn bộ các hàm từ onCreate đến trước handleTileClick giữ nguyên) ...
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,7 +67,7 @@ public class GameActivity extends AppCompatActivity {
         mapUIComponents();
         setupButtonListeners();
 
-        loadResources(); // Load tài nguyên trước
+        loadResources();
         startNewGame();
         playBackgroundMusic();
     }
@@ -80,23 +76,23 @@ public class GameActivity extends AppCompatActivity {
         tvLevel = findViewById(R.id.tv_level);
         tvShuffleCount = findViewById(R.id.tv_shuffle_count);
         tvScore = findViewById(R.id.tv_score);
-        btnMute = findViewById(R.id.btn_mute);
+        btnPause = findViewById(R.id.btn_pause);
         btnShuffle = findViewById(R.id.btn_shuffle);
-        btnReplay = findViewById(R.id.btn_replay);
+        btnSetting = findViewById(R.id.btn_settings);
         timeProgressBar = findViewById(R.id.time_progress_bar);
         gameBoardView = findViewById(R.id.game_board_view);
     }
 
     private void setupButtonListeners() {
         btnShuffle.setOnClickListener(v -> handleShuffle());
-        btnReplay.setOnClickListener(v -> restartGameFromBeginning());
-        btnMute.setOnClickListener(v -> toggleMute());
+        btnPause.setOnClickListener(v -> showSettingsDialog());
+        btnSetting.setOnClickListener(v -> showSettingsDialog());
     }
 
     private void playBackgroundMusic() {
         if (backgroundMusicPlayer == null) {
             backgroundMusicPlayer = MediaPlayer.create(this, R.raw.background_music);
-            backgroundMusicPlayer.setLooping(true); // Lặp lại nhạc nền
+            backgroundMusicPlayer.setLooping(true);
         }
         if (!backgroundMusicPlayer.isPlaying() && !isMuted) {
             backgroundMusicPlayer.start();
@@ -109,53 +105,42 @@ public class GameActivity extends AppCompatActivity {
             if (backgroundMusicPlayer != null && backgroundMusicPlayer.isPlaying()) {
                 backgroundMusicPlayer.pause();
             }
-            // SỬA LẠI ICON CHO ĐÚNG: Khi Mute -> icon phải là loa bị gạch chéo
-            btnMute.setImageResource(R.drawable.ic_mute_off);
-            Toast.makeText(this, "Đã tắt âm thanh", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Sound Off", Toast.LENGTH_SHORT).show();
         } else {
             if (backgroundMusicPlayer != null && !backgroundMusicPlayer.isPlaying()) {
                 backgroundMusicPlayer.start();
             }
-            // Khi không Mute -> icon là loa bình thường
-            btnMute.setImageResource(R.drawable.ic_mute_on);
-            Toast.makeText(this, "Đã bật âm thanh", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Sound On", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void loadResources() {
-        pokemonImages = new Bitmap[TOTAL_POKEMON_TYPES + 1]; // +1 vì index bắt đầu từ 1
+        Bitmap[] pokemonImages = new Bitmap[TOTAL_POKEMON_TYPES + 1];
 
-        // Sử dụng TypedArray để load tài nguyên - nhanh, an toàn và chuyên nghiệp
         final TypedArray ids = getResources().obtainTypedArray(R.array.pokemon_drawables);
         for (int i = 0; i < ids.length(); i++) {
             int resourceId = ids.getResourceId(i, 0);
             if (resourceId != 0) {
-                // index của mảng pokemonImages bắt đầu từ 1, tương ứng với pokemon_1
                 pokemonImages[i + 1] = BitmapFactory.decodeResource(getResources(), resourceId);
             }
         }
-        // Rất quan trọng: giải phóng TypedArray sau khi dùng xong
         ids.recycle();
 
         gameBoardView.setPokemonImages(pokemonImages);
     }
 
     private void startNewGame() {
-        // Khởi tạo bàn cờ với viền trống xung quanh để thuật toán dễ hơn
         board = new int[TOTAL_ROWS + 2][TOTAL_COLS + 2];
         remainingPairs = (TOTAL_ROWS * TOTAL_COLS) / 2;
 
-        // Tạo danh sách các cặp Pokemon
         List<Integer> pokemonIDs = new ArrayList<>();
         for (int i = 0; i < remainingPairs; i++) {
-            // Sử dụng toán tử chia lấy dư để quay vòng qua các loại Pokemon
-            int pokemonType = (i % TOTAL_POKEMON_TYPES) + 1; // +1 vì loại Pokemon bắt đầu từ 1
+            int pokemonType = (i % TOTAL_POKEMON_TYPES) + 1;
             pokemonIDs.add(pokemonType);
             pokemonIDs.add(pokemonType);
         }
         Collections.shuffle(pokemonIDs);
 
-        // Đổ Pokemon vào bàn cờ
         int k = 0;
         for (int i = 1; i <= TOTAL_ROWS; i++) {
             for (int j = 1; j <= TOTAL_COLS; j++) {
@@ -163,37 +148,30 @@ public class GameActivity extends AppCompatActivity {
             }
         }
 
-        // Cập nhật UI
         gameBoardView.setBoard(board);
         gameBoardView.setOnTileClickListener(this::handleTileClick);
         updateUI();
 
-        // TODO: Bắt đầu đếm ngược thời gian
-        startTimer();
+        timeRemainingMillis = GAME_TIME_IN_SECONDS * 1000L;
+        startTimer(timeRemainingMillis);
     }
 
-    private void startTimer() {
-        // Hủy timer cũ nếu có
+    private void startTimer(long millisInFuture) {
         if (gameTimer != null) {
             gameTimer.cancel();
         }
 
-        timeProgressBar.setProgress(100); // Reset thanh thời gian
-
-        gameTimer = new CountDownTimer(GAME_TIME_IN_SECONDS * 1000, 1000) {
+        gameTimer = new CountDownTimer(millisInFuture, 1000) {
             @Override
             public void onTick(long millisUntilFinished) {
-                // Cập nhật thanh thời gian
+                timeRemainingMillis = millisUntilFinished;
                 int progress = (int) (millisUntilFinished * 100 / (GAME_TIME_IN_SECONDS * 1000));
                 timeProgressBar.setProgress(progress);
             }
 
             @Override
             public void onFinish() {
-                // Hết giờ!
                 timeProgressBar.setProgress(0);
-
-                // GỌI HÀM HIỂN THỊ DIALOG TẠI ĐÂY
                 showGameOverDialog();
             }
         };
@@ -201,41 +179,59 @@ public class GameActivity extends AppCompatActivity {
         gameTimer.start();
     }
 
+    private void showSettingsDialog() {
+        if (gameTimer != null) {
+            gameTimer.cancel();
+        }
+
+        SettingsDialog dialog = new SettingsDialog(this, isMuted, new SettingsDialog.SettingsListener() {
+            @Override
+            public void onSoundToggle() {
+                toggleMute();
+                showSettingsDialog();
+            }
+
+            @Override
+            public void onReplay() {
+                restartGameFromBeginning();
+            }
+
+            @Override
+            public void onMainMenu() {
+                finish();
+            }
+
+            @Override
+            public void onResume() {
+                startTimer(timeRemainingMillis);
+            }
+        });
+        dialog.show();
+    }
+
     private void showGameOverDialog() {
-        // Tạo một đối tượng Dialog
         final Dialog dialog = new Dialog(this);
-
-        // Bỏ đi tiêu đề mặc định của Dialog
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        // Gán layout tùy chỉnh đã tạo ở bước 1 vào Dialog
         dialog.setContentView(R.layout.dialog_game_over);
 
-        // Làm cho nền của cửa sổ Dialog trong suốt để thấy được bo góc của layout
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
 
-        // Ánh xạ các nút từ layout tùy chỉnh
         Button btnReplay = dialog.findViewById(R.id.btn_dialog_replay);
-        Button btnExit = dialog.findViewById(R.id.btn_dialog_exit);
+        Button btnHome = dialog.findViewById(R.id.btn_dialog_home);
 
-        // Gán sự kiện cho nút "Chơi lại"
         btnReplay.setOnClickListener(v -> {
-            dialog.dismiss(); // Đóng dialog trước
-            restartGameFromBeginning(); // Gọi hàm chơi lại từ màn đầu
+            dialog.dismiss();
+            restartGameFromBeginning();
         });
 
-        // Gán sự kiện cho nút "Thoát Game"
-        btnExit.setOnClickListener(v -> {
-            dialog.dismiss(); // Đóng dialog trước
-            finish(); // Đóng Activity hiện tại và thoát game
+        btnHome.setOnClickListener(v -> {
+            dialog.dismiss();
+            finish();
         });
 
-        // Không cho phép hủy dialog bằng nút back hoặc chạm ra ngoài
         dialog.setCancelable(false);
-
-        // Hiển thị dialog
         dialog.show();
     }
 
@@ -266,12 +262,9 @@ public class GameActivity extends AppCompatActivity {
                         board[finalFirstSelection.y][finalFirstSelection.x] = 0;
                         board[finalSecondSelection.y][finalSecondSelection.x] = 0;
 
-                        // =======================================================
-                        // THAY ĐỔI: Thêm logic cho màn 15 (cuộn lên)
-                        // =======================================================
                         if (currentLevel == 14) {
                             shiftAllRowsDown();
-                        } else if (currentLevel == 15) { // Màn mới
+                        } else if (currentLevel == 15) {
                             shiftAllRowsUp();
                         } else {
                             shiftBoard(finalFirstSelection, finalSecondSelection);
@@ -300,7 +293,7 @@ public class GameActivity extends AppCompatActivity {
         if (remainingPairs == 0) {
             handleWin();
         } else if (!isMoveAvailable()) {
-            Toast.makeText(this, "Không còn nước đi! Tự động xáo trộn.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No more moves! Automatic shuffle.", Toast.LENGTH_SHORT).show();
             handleShuffle();
         }
     }
@@ -310,42 +303,37 @@ public class GameActivity extends AppCompatActivity {
             shufflesLeft--;
 
             List<Integer> remainingPokemonIDs = new ArrayList<>();
-            // SỬA Ở ĐÂY: Danh sách các ô có Pokémon, không phải tất cả các ô
             List<Point> occupiedSlots = new ArrayList<>();
 
-            // Bước 1: Thu thập tất cả Pokémon còn lại và VỊ TRÍ của chúng
             for (int i = 1; i <= TOTAL_ROWS; i++) {
                 for (int j = 1; j <= TOTAL_COLS; j++) {
                     if (board[i][j] != 0) {
                         remainingPokemonIDs.add(board[i][j]);
-                        occupiedSlots.add(new Point(j, i)); // Lưu lại vị trí của ô có Pokémon
+                        occupiedSlots.add(new Point(j, i));
                     }
                 }
             }
 
-            // Bước 2: Xáo trộn danh sách các Pokémon
             Collections.shuffle(remainingPokemonIDs);
 
-            // Bước 3: Đặt các Pokémon đã xáo trộn trở lại đúng các vị trí cũ
             for (int i = 0; i < occupiedSlots.size(); i++) {
                 Point slot = occupiedSlots.get(i);
                 int pokemonId = remainingPokemonIDs.get(i);
                 board[slot.y][slot.x] = pokemonId;
             }
 
-            gameBoardView.invalidate(); // Vẽ lại bàn cờ
+            gameBoardView.invalidate();
             updateUI();
         } else {
-            Toast.makeText(this, "Bạn đã hết lượt đổi!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "You ran out of shuffles!", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void handleWin() {
-        // Dừng timer khi thắng
         if (gameTimer != null) {
             gameTimer.cancel();
         }
-        Toast.makeText(this, "Bạn đã thắng màn " + currentLevel + "!", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "You won level " + currentLevel + "!", Toast.LENGTH_LONG).show();
         currentLevel++;
         startNewGame();
     }
@@ -354,21 +342,18 @@ public class GameActivity extends AppCompatActivity {
         tvLevel.setText(String.valueOf(currentLevel));
         tvScore.setText(String.valueOf(currentScore));
         tvShuffleCount.setText(String.valueOf(shufflesLeft));
-        gameBoardView.invalidate(); // Rất quan trọng: Yêu cầu GameBoardView vẽ lại
+        gameBoardView.invalidate();
     }
 
-    // --- THUẬT TOÁN TÌM ĐƯỜNG ---
     private List<Point> findPath(Point p1, Point p2) {
         List<Point> path = new ArrayList<>();
         path.add(p1);
 
-        // 1. Kiểm tra đường thẳng (I-path)
         if (checkLine(p1, p2)) {
             path.add(p2);
             return path;
         }
 
-        // 2. Kiểm tra 1 rẽ (L-path)
         Point corner = checkLPath(p1, p2);
         if (corner != null) {
             path.add(corner);
@@ -376,18 +361,16 @@ public class GameActivity extends AppCompatActivity {
             return path;
         }
 
-        // 3. Kiểm tra 2 rẽ (U/Z-path)
         List<Point> uPath = checkUPath(p1, p2);
         if (uPath != null) {
             path.addAll(uPath);
             return path;
         }
 
-        return null; // Không tìm thấy đường
+        return null;
     }
 
     private boolean checkLine(Point p1, Point p2) {
-        // Cùng hàng
         if (p1.y == p2.y) {
             int start = Math.min(p1.x, p2.x);
             int end = Math.max(p1.x, p2.x);
@@ -396,7 +379,6 @@ public class GameActivity extends AppCompatActivity {
             }
             return true;
         }
-        // Cùng cột
         if (p1.x == p2.x) {
             int start = Math.min(p1.y, p2.y);
             int end = Math.max(p1.y, p2.y);
@@ -409,12 +391,10 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private Point checkLPath(Point p1, Point p2) {
-        // Góc 1: (p1.x, p2.y)
         Point c1 = new Point(p1.x, p2.y);
         if (board[c1.y][c1.x] == 0 && checkLine(p1, c1) && checkLine(c1, p2)) {
             return c1;
         }
-        // Góc 2: (p2.x, p1.y)
         Point c2 = new Point(p2.x, p1.y);
         if (board[c2.y][c2.x] == 0 && checkLine(p1, c2) && checkLine(c2, p2)) {
             return c2;
@@ -423,7 +403,6 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private List<Point> checkUPath(Point p1, Point p2) {
-        // Mở rộng từ p1
         for (int i = 0; i < board[0].length; i++) {
             Point testPoint = new Point(i, p1.y);
             if(board[testPoint.y][testPoint.x] == 0 || testPoint.equals(p2)) {
@@ -439,7 +418,6 @@ public class GameActivity extends AppCompatActivity {
                 }
             }
         }
-        // Mở rộng từ p2
         for (int i = 0; i < board.length; i++) {
             Point testPoint = new Point(p1.x, i);
             if(board[testPoint.y][testPoint.x] == 0 || testPoint.equals(p2)) {
@@ -474,28 +452,23 @@ public class GameActivity extends AppCompatActivity {
                 Point p2 = remainingTiles.get(j);
                 if (board[p1.y][p1.x] == board[p2.y][p2.x]) {
                     if (findPath(p1, p2) != null) {
-                        return true; // Tìm thấy ít nhất một cặp có thể nối
+                        return true;
                     }
                 }
             }
         }
-        return false; // Không còn nước đi
+        return false;
     }
 
     private void hideSystemUI() {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         WindowInsetsControllerCompat windowInsetsController =
                 WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        // Cấu hình để ẩn các thanh hệ thống
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars());
-        // Cấu hình để các thanh tự động ẩn lại sau khi người dùng vuốt ra
         windowInsetsController.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         );
     }
-    // =================================================================================
-    // CÁC HÀM DI CHUYỂN BÀN CỜ
-    // =================================================================================
 
     private void shiftRowLeft(int row, int startCol, int endCol) {
         List<Integer> remaining = new ArrayList<>();
@@ -545,9 +518,6 @@ public class GameActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Màn 14: Cuộn TOÀN BỘ bàn cờ xuống 1 hàng.
-     */
     private void shiftAllRowsDown() {
         int[] lastRow = board[TOTAL_ROWS];
         for (int r = TOTAL_ROWS; r > 1; r--) {
@@ -556,18 +526,11 @@ public class GameActivity extends AppCompatActivity {
         board[1] = lastRow;
     }
 
-    /**
-     * THÊM HÀM MỚI
-     * Màn 15: Cuộn TOÀN BỘ bàn cờ lên 1 hàng.
-     */
     private void shiftAllRowsUp() {
-        // Lưu lại hàng đầu tiên (hàng 1)
         int[] firstRow = board[1];
-        // Dịch chuyển các hàng từ 2->1, 3->2, ..., 9->8
         for (int r = 1; r < TOTAL_ROWS; r++) {
             board[r] = board[r + 1];
         }
-        // Đưa hàng đầu đã lưu xuống cuối (thành hàng 9)
         board[TOTAL_ROWS] = firstRow;
     }
 
@@ -581,32 +544,23 @@ public class GameActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Màn 17: Đổ Nghiêng Trái (↙)
-     * Các ô trượt theo đường chéo xuống dưới bên trái.
-     * Ưu tiên: Chéo > Dọc > Ngang.
-     */
     private void cascadeFillFallLeft() {
         boolean tileMoved;
         do {
             tileMoved = false;
-            // Quét từ trên xuống dưới, trái qua phải để lấp đầy chỗ trống
             for (int r = 1; r <= TOTAL_ROWS; r++) {
                 for (int c = 1; c <= TOTAL_COLS; c++) {
                     if (board[r][c] == 0) {
-                        // Ưu tiên 1: Trượt chéo từ trên-phải (↖)
                         if (r > 1 && c < TOTAL_COLS && board[r - 1][c + 1] != 0) {
                             board[r][c] = board[r - 1][c + 1];
                             board[r - 1][c + 1] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 2: Trượt dọc từ trên xuống
                         else if (r > 1 && board[r - 1][c] != 0) {
                             board[r][c] = board[r - 1][c];
                             board[r - 1][c] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 3: Trượt ngang từ phải qua trái
                         else if (c < TOTAL_COLS && board[r][c + 1] != 0) {
                             board[r][c] = board[r][c+1];
                             board[r][c+1] = 0;
@@ -615,35 +569,26 @@ public class GameActivity extends AppCompatActivity {
                     }
                 }
             }
-        } while (tileMoved); // Lặp lại cho đến khi không còn ô nào có thể di chuyển
+        } while (tileMoved);
     }
 
-    /**
-     * Màn 18: Nghiêng Ngược Phải (↗)
-     * Các ô trượt theo đường chéo lên trên bên phải.
-     * Ưu tiên: Chéo > Ngang > Dọc.
-     */
     private void cascadeFillRiseRight() {
         boolean tileMoved;
         do {
             tileMoved = false;
-            // Quét từ dưới lên trên, phải qua trái
             for (int r = TOTAL_ROWS; r >= 1; r--) {
                 for (int c = TOTAL_COLS; c >= 1; c--) {
                     if (board[r][c] == 0) {
-                        // Ưu tiên 1: Trượt chéo từ dưới-trái (↙)
                         if (r < TOTAL_ROWS && c > 1 && board[r + 1][c - 1] != 0) {
                             board[r][c] = board[r + 1][c - 1];
                             board[r + 1][c - 1] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 2: Trượt ngang từ trái qua phải
                         else if (c > 1 && board[r][c - 1] != 0) {
                             board[r][c] = board[r][c - 1];
                             board[r][c - 1] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 3: Trượt dọc từ dưới lên
                         else if (r < TOTAL_ROWS && board[r + 1][c] != 0) {
                             board[r][c] = board[r + 1][c];
                             board[r + 1][c] = 0;
@@ -655,32 +600,23 @@ public class GameActivity extends AppCompatActivity {
         } while (tileMoved);
     }
 
-    /**
-     * Màn 19: Nghiêng Ngược Trái (↖)
-     * Các ô trượt theo đường chéo lên trên bên trái.
-     * Ưu tiên: Chéo > Dọc > Ngang.
-     */
     private void cascadeFillRiseLeft() {
         boolean tileMoved;
         do {
             tileMoved = false;
-            // Quét từ dưới lên trên, trái qua phải
             for (int r = TOTAL_ROWS; r >= 1; r--) {
                 for (int c = 1; c <= TOTAL_COLS; c++) {
                     if (board[r][c] == 0) {
-                        // Ưu tiên 1: Trượt chéo từ dưới-phải (↘)
                         if (r < TOTAL_ROWS && c < TOTAL_COLS && board[r + 1][c + 1] != 0) {
                             board[r][c] = board[r + 1][c + 1];
                             board[r + 1][c + 1] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 2: Trượt dọc từ dưới lên
                         else if (r < TOTAL_ROWS && board[r + 1][c] != 0) {
                             board[r][c] = board[r + 1][c];
                             board[r + 1][c] = 0;
                             tileMoved = true;
                         }
-                        // Ưu tiên 3: Trượt ngang từ phải qua trái
                         else if (c < TOTAL_COLS && board[r][c + 1] != 0) {
                             board[r][c] = board[r][c + 1];
                             board[r][c + 1] = 0;
@@ -693,9 +629,6 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private void shiftBoard(Point p1, Point p2) {
-        // ===============================================================
-        // THAY ĐỔI: Cập nhật logic cho các màn mới
-        // ===============================================================
         if (currentLevel == 16) {
             if (p1.y > p2.y || (p1.y == p2.y && p1.x > p2.x)) {
                 Point temp = p1;
@@ -712,7 +645,6 @@ public class GameActivity extends AppCompatActivity {
             cascadeFillRiseLeft();
         }
         else {
-            // Giữ lại logic xử lý cho các màn cũ
             processShiftForPoint(p1);
             processShiftForPoint(p2);
         }
