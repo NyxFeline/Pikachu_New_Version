@@ -130,17 +130,6 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_pause"
                 tools:ignore="ContentDescription,SpeakableTextPresentCheck,TouchTargetSizeCheck" />
-
-            <ImageButton
-                android:id="@+id/btn_settings"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_settings"
-                tools:ignore="ContentDescription,SpeakableTextPresentCheck,TouchTargetSizeCheck" />
         </LinearLayout>
     </LinearLayout>
 

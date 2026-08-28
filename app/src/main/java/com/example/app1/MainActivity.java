@@ -3,9 +3,11 @@ package com.example.app1;
 import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.view.View;
 import android.view.Window;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -18,6 +20,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 public class MainActivity extends AppCompatActivity {
+
+    private static final String PREFS_NAME = "PikachuPrefs";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,6 +38,20 @@ public class MainActivity extends AppCompatActivity {
         setupButtons();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateContinueButtonState();
+    }
+
+    private void updateContinueButtonState() {
+        Button btnContinue = findViewById(R.id.btn_main_load);
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean hasSavedGame = prefs.contains("board");
+        btnContinue.setEnabled(hasSavedGame);
+        btnContinue.setAlpha(hasSavedGame ? 1.0f : 0.5f);
+    }
+
     private void setupButtons() {
         ImageButton btnPlay = findViewById(R.id.btn_main_play);
         Button btnContinue = findViewById(R.id.btn_main_load);
@@ -41,14 +59,14 @@ public class MainActivity extends AppCompatActivity {
 
         btnPlay.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, GameActivity.class);
+            intent.putExtra("CONTINUE", false);
             startActivity(intent);
         });
 
         btnContinue.setOnClickListener(v -> {
-            // Placeholder for load logic
             Intent intent = new Intent(MainActivity.this, GameActivity.class);
+            intent.putExtra("CONTINUE", true);
             startActivity(intent);
-            Toast.makeText(this, "Resuming Game...", Toast.LENGTH_SHORT).show();
         });
 
         btnSettings.setOnClickListener(v -> showMainSettingsDialog());
@@ -69,14 +87,18 @@ public class MainActivity extends AppCompatActivity {
         Button btnHome = dialog.findViewById(R.id.btn_settings_home);
         Button btnResume = dialog.findViewById(R.id.btn_settings_resume);
 
-        btnReplay.setEnabled(false);
-        btnReplay.setAlpha(0.5f);
+        btnReplay.setVisibility(View.GONE);
         
         btnResume.setText("CLOSE");
         btnResume.setOnClickListener(v -> dialog.dismiss());
 
-        btnHome.setText("ABOUT");
-        btnHome.setOnClickListener(v -> Toast.makeText(this, "Pikachu Version 2024", Toast.LENGTH_SHORT).show());
+        btnHome.setText("RESET DATA");
+        btnHome.setOnClickListener(v -> {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+            updateContinueButtonState();
+            Toast.makeText(this, "Data Reset", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
 
         btnSound.setOnClickListener(v -> Toast.makeText(this, "Sound Settings Updated", Toast.LENGTH_SHORT).show());
 

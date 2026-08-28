@@ -6,12 +6,12 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import android.app.Dialog;
-import android.content.res.TypedArray;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.CountDownTimer;
@@ -24,6 +24,13 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.transition.Transition;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -31,15 +38,15 @@ import java.util.List;
 public class GameActivity extends AppCompatActivity {
 
     private static final int DEBUG_START_LEVEL = 1;
-
     private static final int TOTAL_ROWS = 9;
     private static final int TOTAL_COLS = 16;
     private static final int TOTAL_POKEMON_TYPES = 18;
     private static final int GAME_TIME_IN_SECONDS = 260;
     private static final int INITIAL_SHUFFLES = 10;
+    private static final String PREFS_NAME = "PikachuPrefs";
 
     private TextView tvLevel, tvShuffleCount, tvScore;
-    private ImageButton btnPause, btnShuffle, btnSetting;
+    private ImageButton btnPause, btnShuffle;
     private ProgressBar timeProgressBar;
     private GameBoardView gameBoardView;
 
@@ -61,14 +68,11 @@ public class GameActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         hideSystemUI();
-
         setContentView(R.layout.activity_game);
 
         mapUIComponents();
         setupButtonListeners();
-
         loadResources();
-        startNewGame();
         playBackgroundMusic();
     }
 
@@ -78,7 +82,6 @@ public class GameActivity extends AppCompatActivity {
         tvScore = findViewById(R.id.tv_score);
         btnPause = findViewById(R.id.btn_pause);
         btnShuffle = findViewById(R.id.btn_shuffle);
-        btnSetting = findViewById(R.id.btn_settings);
         timeProgressBar = findViewById(R.id.time_progress_bar);
         gameBoardView = findViewById(R.id.game_board_view);
     }
@@ -86,7 +89,6 @@ public class GameActivity extends AppCompatActivity {
     private void setupButtonListeners() {
         btnShuffle.setOnClickListener(v -> handleShuffle());
         btnPause.setOnClickListener(v -> showSettingsDialog());
-        btnSetting.setOnClickListener(v -> showSettingsDialog());
     }
 
     private void playBackgroundMusic() {
@@ -115,18 +117,49 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private void loadResources() {
-        Bitmap[] pokemonImages = new Bitmap[TOTAL_POKEMON_TYPES + 1];
+        final Bitmap[] pokemonImages = new Bitmap[TOTAL_POKEMON_TYPES + 1];
+        final int[] loadedCount = {0};
 
-        final TypedArray ids = getResources().obtainTypedArray(R.array.pokemon_drawables);
-        for (int i = 0; i < ids.length(); i++) {
-            int resourceId = ids.getResourceId(i, 0);
-            if (resourceId != 0) {
-                pokemonImages[i + 1] = BitmapFactory.decodeResource(getResources(), resourceId);
-            }
+        Toast.makeText(this, "Loading Pokemon from PokéAPI...", Toast.LENGTH_SHORT).show();
+
+        for (int i = 1; i <= TOTAL_POKEMON_TYPES; i++) {
+            final int index = i;
+            String url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/" + i + ".png";
+
+            Glide.with(this)
+                    .asBitmap()
+                    .load(url)
+                    .into(new CustomTarget<Bitmap>() {
+                        @Override
+                        public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                            pokemonImages[index] = resource;
+                            checkProgress();
+                        }
+
+                        @Override
+                        public void onLoadCleared(@Nullable Drawable placeholder) { }
+
+                        @Override
+                        public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                            checkProgress();
+                        }
+
+                        private void checkProgress() {
+                            loadedCount[0]++;
+                            if (loadedCount[0] == TOTAL_POKEMON_TYPES) {
+                                runOnUiThread(() -> {
+                                    gameBoardView.setPokemonImages(pokemonImages);
+                                    boolean shouldContinue = getIntent().getBooleanExtra("CONTINUE", false);
+                                    if (shouldContinue) {
+                                        loadGameState();
+                                    } else {
+                                        startNewGame();
+                                    }
+                                });
+                            }
+                        }
+                    });
         }
-        ids.recycle();
-
-        gameBoardView.setPokemonImages(pokemonImages);
     }
 
     private void startNewGame() {
@@ -150,9 +183,8 @@ public class GameActivity extends AppCompatActivity {
 
         gameBoardView.setBoard(board);
         gameBoardView.setOnTileClickListener(this::handleTileClick);
-        updateUI();
-
         timeRemainingMillis = GAME_TIME_IN_SECONDS * 1000L;
+        updateUI();
         startTimer(timeRemainingMillis);
     }
 
@@ -198,6 +230,7 @@ public class GameActivity extends AppCompatActivity {
 
             @Override
             public void onMainMenu() {
+                saveGameState();
                 finish();
             }
 
@@ -210,10 +243,11 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private void showGameOverDialog() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(R.layout.dialog_game_over);
-
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
@@ -252,39 +286,31 @@ public class GameActivity extends AppCompatActivity {
             if (board[firstSelection.y][firstSelection.x] == board[secondSelection.y][secondSelection.x]) {
                 List<Point> path = findPath(firstSelection, secondSelection);
                 if (path != null) {
-                    final Point finalFirstSelection = firstSelection;
-                    final Point finalSecondSelection = secondSelection;
+                    final Point p1 = firstSelection;
+                    final Point p2 = secondSelection;
                     firstSelection = null;
+                    
                     gameBoardView.setEnabled(false);
                     gameBoardView.drawPath(path);
 
                     handler.postDelayed(() -> {
-                        board[finalFirstSelection.y][finalFirstSelection.x] = 0;
-                        board[finalSecondSelection.y][finalSecondSelection.x] = 0;
-
-                        if (currentLevel == 14) {
-                            shiftAllRowsDown();
-                        } else if (currentLevel == 15) {
-                            shiftAllRowsUp();
-                        } else {
-                            shiftBoard(finalFirstSelection, finalSecondSelection);
-                        }
-
+                        board[p1.y][p1.x] = 0;
+                        board[p2.y][p2.x] = 0;
+                        
                         gameBoardView.clearPathAndSelection();
                         currentScore += 10;
                         remainingPairs--;
                         updateUI();
                         checkGameState();
                         gameBoardView.setEnabled(true);
-
                     }, 300);
                 } else {
                     firstSelection = null;
                     gameBoardView.setSelectedTile(null);
                 }
             } else {
-                firstSelection = null;
-                gameBoardView.setSelectedTile(null);
+                firstSelection = secondSelection;
+                gameBoardView.setSelectedTile(firstSelection);
             }
         }
     }
@@ -293,7 +319,7 @@ public class GameActivity extends AppCompatActivity {
         if (remainingPairs == 0) {
             handleWin();
         } else if (!isMoveAvailable()) {
-            Toast.makeText(this, "No more moves! Automatic shuffle.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No more moves! Shuffling...", Toast.LENGTH_SHORT).show();
             handleShuffle();
         }
     }
@@ -301,39 +327,27 @@ public class GameActivity extends AppCompatActivity {
     private void handleShuffle() {
         if (shufflesLeft > 0) {
             shufflesLeft--;
-
-            List<Integer> remainingPokemonIDs = new ArrayList<>();
-            List<Point> occupiedSlots = new ArrayList<>();
-
+            List<Integer> ids = new ArrayList<>();
             for (int i = 1; i <= TOTAL_ROWS; i++) {
                 for (int j = 1; j <= TOTAL_COLS; j++) {
-                    if (board[i][j] != 0) {
-                        remainingPokemonIDs.add(board[i][j]);
-                        occupiedSlots.add(new Point(j, i));
-                    }
+                    if (board[i][j] != 0) ids.add(board[i][j]);
                 }
             }
-
-            Collections.shuffle(remainingPokemonIDs);
-
-            for (int i = 0; i < occupiedSlots.size(); i++) {
-                Point slot = occupiedSlots.get(i);
-                int pokemonId = remainingPokemonIDs.get(i);
-                board[slot.y][slot.x] = pokemonId;
+            Collections.shuffle(ids);
+            int k = 0;
+            for (int i = 1; i <= TOTAL_ROWS; i++) {
+                for (int j = 1; j <= TOTAL_COLS; j++) {
+                    if (board[i][j] != 0) board[i][j] = ids.get(k++);
+                }
             }
-
             gameBoardView.invalidate();
             updateUI();
-        } else {
-            Toast.makeText(this, "You ran out of shuffles!", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void handleWin() {
-        if (gameTimer != null) {
-            gameTimer.cancel();
-        }
-        Toast.makeText(this, "You won level " + currentLevel + "!", Toast.LENGTH_LONG).show();
+        if (gameTimer != null) gameTimer.cancel();
+        Toast.makeText(this, "Victory!", Toast.LENGTH_LONG).show();
         currentLevel++;
         startNewGame();
     }
@@ -345,40 +359,32 @@ public class GameActivity extends AppCompatActivity {
         gameBoardView.invalidate();
     }
 
+    // --- LOGIC TÌM ĐƯỜNG (PATHFINDING) ---
+    
     private List<Point> findPath(Point p1, Point p2) {
-        List<Point> path = new ArrayList<>();
-        path.add(p1);
-
+        // 1. Đường thẳng
         if (checkLine(p1, p2)) {
+            List<Point> path = new ArrayList<>();
+            path.add(p1);
             path.add(p2);
             return path;
         }
 
+        // 2. Đường chữ L (1 góc vuông)
         Point corner = checkLPath(p1, p2);
         if (corner != null) {
+            List<Point> path = new ArrayList<>();
+            path.add(p1);
             path.add(corner);
             path.add(p2);
             return path;
         }
 
-        List<Point> uPath = checkUPath(p1, p2);
-        if (uPath != null) {
-            path.addAll(uPath);
-            return path;
-        }
-
-        return null;
+        // 3. Đường chữ U/Z (2 góc vuông)
+        return checkTwoCornersPath(p1, p2);
     }
 
     private boolean checkLine(Point p1, Point p2) {
-        if (p1.y == p2.y) {
-            int start = Math.min(p1.x, p2.x);
-            int end = Math.max(p1.x, p2.x);
-            for (int i = start + 1; i < end; i++) {
-                if (board[p1.y][i] != 0) return false;
-            }
-            return true;
-        }
         if (p1.x == p2.x) {
             int start = Math.min(p1.y, p2.y);
             int end = Math.max(p1.y, p2.y);
@@ -386,50 +392,57 @@ public class GameActivity extends AppCompatActivity {
                 if (board[i][p1.x] != 0) return false;
             }
             return true;
+        } else if (p1.y == p2.y) {
+            int start = Math.min(p1.x, p2.x);
+            int end = Math.max(p1.x, p2.x);
+            for (int i = start + 1; i < end; i++) {
+                if (board[p1.y][i] != 0) return false;
+            }
+            return true;
         }
         return false;
     }
 
     private Point checkLPath(Point p1, Point p2) {
-        Point c1 = new Point(p1.x, p2.y);
-        if (board[c1.y][c1.x] == 0 && checkLine(p1, c1) && checkLine(c1, p2)) {
-            return c1;
-        }
-        Point c2 = new Point(p2.x, p1.y);
-        if (board[c2.y][c2.x] == 0 && checkLine(p1, c2) && checkLine(c2, p2)) {
-            return c2;
-        }
+        Point c1 = new Point(p2.x, p1.y);
+        if (board[c1.y][c1.x] == 0 && checkLine(p1, c1) && checkLine(c1, p2)) return c1;
+        
+        Point c2 = new Point(p1.x, p2.y);
+        if (board[c2.y][c2.x] == 0 && checkLine(p1, c2) && checkLine(c2, p2)) return c2;
+        
         return null;
     }
 
-    private List<Point> checkUPath(Point p1, Point p2) {
-        for (int i = 0; i < board[0].length; i++) {
-            Point testPoint = new Point(i, p1.y);
-            if(board[testPoint.y][testPoint.x] == 0 || testPoint.equals(p2)) {
-                if (checkLine(p1, testPoint)) {
-                    Point corner = checkLPath(testPoint, p2);
-                    if(corner != null) {
-                        List<Point> path = new ArrayList<>();
-                        path.add(testPoint);
-                        path.add(corner);
-                        path.add(p2);
-                        return path;
-                    }
+    private List<Point> checkTwoCornersPath(Point p1, Point p2) {
+        // Quét ngang
+        for (int x = 0; x < board[0].length; x++) {
+            if (x == p1.x) continue;
+            Point t1 = new Point(x, p1.y);
+            if (board[t1.y][t1.x] == 0 && checkLine(p1, t1)) {
+                Point t2 = checkLPath(t1, p2);
+                if (t2 != null) {
+                    List<Point> path = new ArrayList<>();
+                    path.add(p1);
+                    path.add(t1);
+                    path.add(t2);
+                    path.add(p2);
+                    return path;
                 }
             }
         }
-        for (int i = 0; i < board.length; i++) {
-            Point testPoint = new Point(p1.x, i);
-            if(board[testPoint.y][testPoint.x] == 0 || testPoint.equals(p2)) {
-                if (checkLine(p1, testPoint)) {
-                    Point corner = checkLPath(testPoint, p2);
-                    if(corner != null) {
-                        List<Point> path = new ArrayList<>();
-                        path.add(testPoint);
-                        path.add(corner);
-                        path.add(p2);
-                        return path;
-                    }
+        // Quét dọc
+        for (int y = 0; y < board.length; y++) {
+            if (y == p1.y) continue;
+            Point t1 = new Point(p1.x, y);
+            if (board[t1.y][t1.x] == 0 && checkLine(p1, t1)) {
+                Point t2 = checkLPath(t1, p2);
+                if (t2 != null) {
+                    List<Point> path = new ArrayList<>();
+                    path.add(p1);
+                    path.add(t1);
+                    path.add(t2);
+                    path.add(p2);
+                    return path;
                 }
             }
         }
@@ -437,24 +450,17 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private boolean isMoveAvailable() {
-        List<Point> remainingTiles = new ArrayList<>();
+        List<Point> tiles = new ArrayList<>();
         for (int i = 1; i <= TOTAL_ROWS; i++) {
             for (int j = 1; j <= TOTAL_COLS; j++) {
-                if (board[i][j] != 0) {
-                    remainingTiles.add(new Point(j, i));
-                }
+                if (board[i][j] != 0) tiles.add(new Point(j, i));
             }
         }
-
-        for (int i = 0; i < remainingTiles.size(); i++) {
-            for (int j = i + 1; j < remainingTiles.size(); j++) {
-                Point p1 = remainingTiles.get(i);
-                Point p2 = remainingTiles.get(j);
-                if (board[p1.y][p1.x] == board[p2.y][p2.x]) {
-                    if (findPath(p1, p2) != null) {
-                        return true;
-                    }
-                }
+        for (int i = 0; i < tiles.size(); i++) {
+            for (int j = i + 1; j < tiles.size(); j++) {
+                Point p1 = tiles.get(i);
+                Point p2 = tiles.get(j);
+                if (board[p1.y][p1.x] == board[p2.y][p2.x] && findPath(p1, p2) != null) return true;
             }
         }
         return false;
@@ -462,308 +468,73 @@ public class GameActivity extends AppCompatActivity {
 
     private void hideSystemUI() {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        WindowInsetsControllerCompat windowInsetsController =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars());
-        windowInsetsController.setSystemBarsBehavior(
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        );
+        WindowInsetsControllerCompat ctrl = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        ctrl.hide(WindowInsetsCompat.Type.systemBars());
+        ctrl.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
-
-    private void shiftRowLeft(int row, int startCol, int endCol) {
-        List<Integer> remaining = new ArrayList<>();
-        for (int c = startCol; c <= endCol; c++) {
-            if (board[row][c] != 0)
-                remaining.add(board[row][c]);
-        }
-        int currentIndex = 0;
-        for (int c = startCol; c <= endCol; c++) {
-            board[row][c] = (currentIndex < remaining.size()) ? remaining.get(currentIndex++) : 0;
-        }
-    }
-
-    private void shiftRowRight(int row, int startCol, int endCol) {
-        List<Integer> remaining = new ArrayList<>();
-        for (int c = startCol; c <= endCol; c++) {
-            if (board[row][c] != 0)
-                remaining.add(board[row][c]);
-        }
-        int currentIndex = remaining.size() - 1;
-        for (int c = endCol; c >= startCol; c--) {
-            board[row][c] = (currentIndex >= 0) ? remaining.get(currentIndex--) : 0;
-        }
-    }
-
-    private void shiftColumnUp(int col, int startRow, int endRow) {
-        List<Integer> remaining = new ArrayList<>();
-        for (int r = startRow; r <= endRow; r++) {
-            if (board[r][col] != 0)
-                remaining.add(board[r][col]);
-        }
-        int currentIndex = 0;
-        for (int r = startRow; r <= endRow; r++) {
-            board[r][col] = (currentIndex < remaining.size()) ? remaining.get(currentIndex++) : 0;
-        }
-    }
-
-    private void shiftColumnDown(int col, int startRow, int endRow) {
-        List<Integer> remaining = new ArrayList<>();
-        for (int r = startRow; r <= endRow; r++) {
-            if (board[r][col] != 0)
-                remaining.add(board[r][col]);
-        }
-        int currentIndex = remaining.size() - 1;
-        for (int r = endRow; r >= startRow; r--) {
-            board[r][col] = (currentIndex >= 0) ? remaining.get(currentIndex--) : 0;
-        }
-    }
-
-    private void shiftAllRowsDown() {
-        int[] lastRow = board[TOTAL_ROWS];
-        for (int r = TOTAL_ROWS; r > 1; r--) {
-            board[r] = board[r - 1];
-        }
-        board[1] = lastRow;
-    }
-
-    private void shiftAllRowsUp() {
-        int[] firstRow = board[1];
-        for (int r = 1; r < TOTAL_ROWS; r++) {
-            board[r] = board[r + 1];
-        }
-        board[TOTAL_ROWS] = firstRow;
-    }
-
-    private void cascadeFill(int row, int col) {
-        if (row > 1 && col > 1 && board[row - 1][col - 1] != 0) {
-            board[row][col] = board[row - 1][col - 1];
-            board[row - 1][col - 1] = 0;
-            cascadeFill(row - 1, col - 1);
-        } else if (row > 1 && board[row - 1][col] != 0) {
-            shiftColumnUp(col, 1, row);
-        }
-    }
-
-    private void cascadeFillFallLeft() {
-        boolean tileMoved;
-        do {
-            tileMoved = false;
-            for (int r = 1; r <= TOTAL_ROWS; r++) {
-                for (int c = 1; c <= TOTAL_COLS; c++) {
-                    if (board[r][c] == 0) {
-                        if (r > 1 && c < TOTAL_COLS && board[r - 1][c + 1] != 0) {
-                            board[r][c] = board[r - 1][c + 1];
-                            board[r - 1][c + 1] = 0;
-                            tileMoved = true;
-                        }
-                        else if (r > 1 && board[r - 1][c] != 0) {
-                            board[r][c] = board[r - 1][c];
-                            board[r - 1][c] = 0;
-                            tileMoved = true;
-                        }
-                        else if (c < TOTAL_COLS && board[r][c + 1] != 0) {
-                            board[r][c] = board[r][c+1];
-                            board[r][c+1] = 0;
-                            tileMoved = true;
-                        }
-                    }
-                }
-            }
-        } while (tileMoved);
-    }
-
-    private void cascadeFillRiseRight() {
-        boolean tileMoved;
-        do {
-            tileMoved = false;
-            for (int r = TOTAL_ROWS; r >= 1; r--) {
-                for (int c = TOTAL_COLS; c >= 1; c--) {
-                    if (board[r][c] == 0) {
-                        if (r < TOTAL_ROWS && c > 1 && board[r + 1][c - 1] != 0) {
-                            board[r][c] = board[r + 1][c - 1];
-                            board[r + 1][c - 1] = 0;
-                            tileMoved = true;
-                        }
-                        else if (c > 1 && board[r][c - 1] != 0) {
-                            board[r][c] = board[r][c - 1];
-                            board[r][c - 1] = 0;
-                            tileMoved = true;
-                        }
-                        else if (r < TOTAL_ROWS && board[r + 1][c] != 0) {
-                            board[r][c] = board[r + 1][c];
-                            board[r + 1][c] = 0;
-                            tileMoved = true;
-                        }
-                    }
-                }
-            }
-        } while (tileMoved);
-    }
-
-    private void cascadeFillRiseLeft() {
-        boolean tileMoved;
-        do {
-            tileMoved = false;
-            for (int r = TOTAL_ROWS; r >= 1; r--) {
-                for (int c = 1; c <= TOTAL_COLS; c++) {
-                    if (board[r][c] == 0) {
-                        if (r < TOTAL_ROWS && c < TOTAL_COLS && board[r + 1][c + 1] != 0) {
-                            board[r][c] = board[r + 1][c + 1];
-                            board[r + 1][c + 1] = 0;
-                            tileMoved = true;
-                        }
-                        else if (r < TOTAL_ROWS && board[r + 1][c] != 0) {
-                            board[r][c] = board[r + 1][c];
-                            board[r + 1][c] = 0;
-                            tileMoved = true;
-                        }
-                        else if (c < TOTAL_COLS && board[r][c + 1] != 0) {
-                            board[r][c] = board[r][c + 1];
-                            board[r][c + 1] = 0;
-                            tileMoved = true;
-                        }
-                    }
-                }
-            }
-        } while (tileMoved);
-    }
-
-    private void shiftBoard(Point p1, Point p2) {
-        if (currentLevel == 16) {
-            if (p1.y > p2.y || (p1.y == p2.y && p1.x > p2.x)) {
-                Point temp = p1;
-                p1 = p2;
-                p2 = temp;
-            }
-            cascadeFill(p1.y, p1.x);
-            cascadeFill(p2.y, p2.x);
-        } else if (currentLevel == 17) {
-            cascadeFillFallLeft();
-        } else if (currentLevel == 18) {
-            cascadeFillRiseRight();
-        } else if (currentLevel == 19) {
-            cascadeFillRiseLeft();
-        }
-        else {
-            processShiftForPoint(p1);
-            processShiftForPoint(p2);
-        }
-    }
-
-    private void processShiftForPoint(Point p) {
-        final int horizontalMidpoint = 4;
-        final int verticalMidpoint = 8;
-
-        switch (currentLevel) {
-            case 2:
-                shiftColumnUp(p.x, 1, TOTAL_ROWS);
-                break;
-            case 3:
-                shiftColumnDown(p.x, 1, TOTAL_ROWS);
-                break;
-            case 4:
-                shiftRowLeft(p.y, 1, TOTAL_COLS);
-                break;
-            case 5:
-                shiftRowRight(p.y, 1, TOTAL_COLS);
-                break;
-            case 6:
-                if (p.x <= verticalMidpoint)
-                    shiftRowLeft(p.y, 1, verticalMidpoint);
-                else
-                    shiftRowRight(p.y, verticalMidpoint + 1, TOTAL_COLS);
-                break;
-            case 7:
-                if (p.x <= verticalMidpoint)
-                    shiftRowRight(p.y, 1, verticalMidpoint);
-                else
-                    shiftRowLeft(p.y, verticalMidpoint + 1, TOTAL_COLS);
-                break;
-            case 8:
-                if (p.y <= horizontalMidpoint)
-                    shiftColumnUp(p.x, 1, horizontalMidpoint);
-                else
-                    shiftColumnDown(p.x, horizontalMidpoint + 1, TOTAL_ROWS);
-                break;
-            case 9:
-                if (p.y <= horizontalMidpoint)
-                    shiftColumnDown(p.x, 1, horizontalMidpoint);
-                else
-                    shiftColumnUp(p.x, horizontalMidpoint + 1, TOTAL_ROWS);
-                break;
-            case 10:
-                if (p.x <= verticalMidpoint)
-                    shiftRowLeft(p.y, 1, verticalMidpoint);
-                break;
-            case 11:
-                if (p.x > verticalMidpoint)
-                    shiftRowRight(p.y, verticalMidpoint + 1, TOTAL_COLS);
-                break;
-            case 12:
-                if (p.y <= horizontalMidpoint) {
-                    shiftColumnDown(p.x, 1, horizontalMidpoint);
-                } else if (p.y > horizontalMidpoint + 1) {
-                    shiftColumnUp(p.x, horizontalMidpoint + 2, TOTAL_ROWS);
-                }
-                break;
-            case 13:
-                if (p.y <= horizontalMidpoint) {
-                    if (p.x <= verticalMidpoint) {
-                        shiftColumnDown(p.x, 1, horizontalMidpoint);
-                        shiftRowRight(p.y, 1, verticalMidpoint);
-                    } else {
-                        shiftColumnDown(p.x, 1, horizontalMidpoint);
-                        shiftRowLeft(p.y, verticalMidpoint + 1, TOTAL_COLS);
-                    }
-                } else {
-                    if (p.x <= verticalMidpoint) {
-                        shiftColumnUp(p.x, horizontalMidpoint + 1, TOTAL_ROWS);
-                        shiftRowRight(p.y, 1, verticalMidpoint);
-                    } else {
-                        shiftColumnUp(p.x, horizontalMidpoint + 1, TOTAL_ROWS);
-                        shiftRowLeft(p.y, verticalMidpoint + 1, TOTAL_COLS);
-                    }
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-
 
     private void restartGameFromBeginning() {
-        if (gameTimer != null) {
-            gameTimer.cancel();
-        }
+        if (gameTimer != null) gameTimer.cancel();
         currentLevel = DEBUG_START_LEVEL;
         currentScore = 0;
         shufflesLeft = INITIAL_SHUFFLES;
         startNewGame();
     }
 
+    private void saveGameState() {
+        SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+        editor.putInt("level", currentLevel);
+        editor.putInt("score", currentScore);
+        editor.putInt("shuffles", shufflesLeft);
+        editor.putLong("time", timeRemainingMillis);
+        editor.putInt("remainingPairs", remainingPairs);
+        StringBuilder sb = new StringBuilder();
+        for (int[] rows : board) {
+            for (int val : rows) sb.append(val).append(",");
+        }
+        editor.putString("board", sb.toString());
+        editor.apply();
+    }
+
+    private void loadGameState() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        currentLevel = prefs.getInt("level", 1);
+        currentScore = prefs.getInt("score", 0);
+        shufflesLeft = prefs.getInt("shuffles", 10);
+        timeRemainingMillis = prefs.getLong("time", GAME_TIME_IN_SECONDS * 1000L);
+        remainingPairs = prefs.getInt("remainingPairs", 0);
+        String boardStr = prefs.getString("board", "");
+        if (!boardStr.isEmpty()) {
+            String[] parts = boardStr.split(",");
+            board = new int[TOTAL_ROWS + 2][TOTAL_COLS + 2];
+            int k = 0;
+            for (int i = 0; i < board.length; i++) {
+                for (int j = 0; j < board[0].length; j++) board[i][j] = Integer.parseInt(parts[k++]);
+            }
+        }
+        gameBoardView.setBoard(board);
+        gameBoardView.setOnTileClickListener(this::handleTileClick);
+        updateUI();
+        startTimer(timeRemainingMillis);
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
-        if (backgroundMusicPlayer != null && backgroundMusicPlayer.isPlaying()) {
-            backgroundMusicPlayer.pause();
-        }
+        if (backgroundMusicPlayer != null && backgroundMusicPlayer.isPlaying()) backgroundMusicPlayer.pause();
+        saveGameState();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (backgroundMusicPlayer != null && !backgroundMusicPlayer.isPlaying() && !isMuted) {
-            backgroundMusicPlayer.start();
-        }
+        if (backgroundMusicPlayer != null && !backgroundMusicPlayer.isPlaying() && !isMuted) backgroundMusicPlayer.start();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (gameTimer != null) {
-            gameTimer.cancel();
-        }
+        if (gameTimer != null) gameTimer.cancel();
         if (backgroundMusicPlayer != null) {
             backgroundMusicPlayer.stop();
             backgroundMusicPlayer.release();
